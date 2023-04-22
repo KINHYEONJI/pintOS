@@ -28,6 +28,13 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
+/* List of processes in THREAD_BLOCKED state,
+   processes in sleep until the set time */
+static struct list sleep_list;
+
+/* Global variable for keeping track of the minimum wakeup_tick of threads */
+static int64_t global_tick;
+
 /* Idle thread. */
 static struct thread *idle_thread;
 
@@ -105,16 +112,19 @@ thread_init (void) {
 	};
 	lgdt (&gdt_ds);
 
-	/* Init the globla thread context */
+	/* Init the global thread context */
 	lock_init (&tid_lock);
 	list_init (&ready_list);
+	list_init (&sleep_list);
 	list_init (&destruction_req);
+	global_tick = 
 
 	/* Set up a thread structure for the running thread. */
 	initial_thread = running_thread ();
 	init_thread (initial_thread, "main", PRI_DEFAULT);
 	initial_thread->status = THREAD_RUNNING;
 	initial_thread->tid = allocate_tid ();
+	initial_thread->wakeup_tick = 0;	// dummy value
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -305,6 +315,29 @@ thread_yield (void) {
 	if (curr != idle_thread)
 		list_push_back (&ready_list, &curr->elem);
 	do_schedule (THREAD_READY);
+	intr_set_level (old_level);
+}
+
+/* Put thread to sleep */
+void thread_sleep(int64_t wakeup_tick) {
+	struct thread *curr = thread_current();
+	enum intr_level old_level;
+	
+	ASSERT (!intr_context ());
+
+	/* if the current thread is not idle thread,
+   	change the state of the caller thread to BLOCKED,
+   	store the local tick to wake up,
+   	update the global tick if necessary,
+   	and call schedule() */
+ 	/* When you manipulate thread list, disable interrupt! */
+	curr->wakeup_tick = wakeup_tick;	// local tick 설정 : wakeup_tick 필드를 argument로 들어온 값으로 설정
+	global_tick = get_global_tick();  	// 변수타입 정해야함, get_global_tick 함수 정의해야 함
+	set_global_tick(min(global_tick, wakeup_tick)); 	// global_tick과 새로 입력된 wakeup_tick 중에서 더 작은 값을 global_tick 으로 업데이트 // seg_global_tick 함수 정의해야 함
+	old_level = intr_disable ();
+	if (curr != idle_thread)
+		list_push_back (&sleep_list, &curr->elem);		// sleep queue의 가장 마지막에 해당 thread를 추가 // 순서를 정렬하면서 sleep_list에 추가될 수 있도록 새로운 함수 정의해야 함
+		thread_block();						// thread의 상태를 blocked로 변경 (뒤에 나오는 do_schdule의 역할과 중복될 수 있을 것 같음)
 	intr_set_level (old_level);
 }
 
