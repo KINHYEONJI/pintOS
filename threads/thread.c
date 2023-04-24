@@ -622,10 +622,7 @@ void thread_sleep(int64_t ticks)
 		t->wakeup_ticks = ticks;
 		list_push_back(&sleep_list, &t->elem);
 
-		if (next_tick_to_awake > ticks)
-		{
-			next_tick_to_awake = ticks;
-		}
+		update_next_tick_to_awake(ticks);
 
 		thread_block();
 	}
@@ -634,13 +631,13 @@ void thread_sleep(int64_t ticks)
 
 void thread_awake(int64_t ticks)
 {
-	int64_t current_tick = timer_ticks();
+	next_tick_to_awake = INT64_MAX;
 
 	struct list_elem *e = list_begin(&sleep_list);
-
+	struct thread *t;
 	while (e != list_end(&sleep_list))
 	{
-		struct thread *t = list_entry(e, struct thread, elem);
+		t = list_entry(e, struct thread, elem);
 
 		if (t->wakeup_ticks <= ticks)
 		{
@@ -654,7 +651,7 @@ void thread_awake(int64_t ticks)
 		}
 		else
 		{
-			update_next_tick_to_awake(ticks);
+			update_next_tick_to_awake(t->wakeup_ticks);
 			e = list_next(e);
 		}
 	}
@@ -670,15 +667,10 @@ void update_next_tick_to_awake(int64_t ticks)
 	}
 	else
 	{
-		int64_t min_ticks = list_entry(list_front(&sleep_list), struct thread, elem)->wakeup_ticks;
-		if (ticks < min_ticks)
-		{
-			next_tick_to_awake = ticks;
-		}
-		else
-		{
-			next_tick_to_awake = min_ticks;
-		}
+	if (ticks < next_tick_to_awake)
+	{
+		next_tick_to_awake = ticks;
+	}
 	}
 
 	intr_set_level(old_level);
