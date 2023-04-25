@@ -150,6 +150,6 @@ void update_next_tick_to_awake(int64_t ticks);
 int64_t get_next_tick_to_awake(void);
 
 void test_max_priority(void); //현재 수행중인 스레드와 우선순위가 가장 높은 스레드를 비교하여 스케줄링
-bool cmp_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED); // 인자로 주어진 두개의 thread의 우선순위를 비교 
+bool cmp_priority(const struct list_elem *a, const struct list_elem *b, void *aux); // 인자로 주어진 두개의 thread의 우선순위를 비교 
 
 #endif /* threads/thread.h */
