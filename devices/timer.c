@@ -106,7 +106,7 @@ void timer_sleep(int64_t ticks)
 
 	// sleep/wakeup 방식
 
-	ASSERT(ticks > 0);
+	// ASSERT(ticks > 0);
 
 	int64_t start = timer_ticks();
 

@@ -209,6 +209,9 @@ tid_t thread_create(const char *name, int priority,
 	/* Add to run queue. */
 	thread_unblock(t);
 
+	/* Check current thread's priority and max priority in list and make current yield if priority in list is higher */
+	test_max_priority();
+
 	return tid;
 }
 
@@ -242,7 +245,11 @@ void thread_unblock(struct thread *t)
 
 	old_level = intr_disable();
 	ASSERT(t->status == THREAD_BLOCKED);
-	list_push_back(&ready_list, &t->elem);
+	
+	/* insert into ready list in priority order instead of pushing at the back of the list */
+	// list_push_back(&ready_list, &t->elem);
+	list_insert_ordered(&ready_list, &t->elem, &cmp_priority, NULL);	
+	
 	t->status = THREAD_READY;
 	intr_set_level(old_level);
 }
@@ -307,7 +314,9 @@ void thread_yield(void)
 
 	old_level = intr_disable();
 	if (curr != idle_thread)
-		list_push_back(&ready_list, &curr->elem);
+		/* insert into ready list in priority order instead of pushing at the back of the list */
+		// list_push_back(&ready_list, &curr->elem);
+		list_insert_ordered(&ready_list, &curr->elem, &cmp_priority, NULL);	
 	do_schedule(THREAD_READY);
 	intr_set_level(old_level);
 }
@@ -316,6 +325,9 @@ void thread_yield(void)
 void thread_set_priority(int new_priority)
 {
 	thread_current()->priority = new_priority;
+
+	/* Check if current thread has to yield with the newly set priority */
+	test_max_priority();
 }
 
 /* Returns the current thread's priority. */
@@ -679,4 +691,25 @@ void update_next_tick_to_awake(int64_t ticks)
 int64_t get_next_tick_to_awake(void)
 {
 	return next_tick_to_awake;
+}
+
+void test_max_priority(void) {
+	struct thread *curr = thread_current();
+
+	if (!list_empty(&ready_list)) {
+		struct list_elem *e = list_front(&ready_list);
+		struct thread *t = list_entry(e, struct thread, elem);
+
+		/* Compare the priorities of the currently runnuing thread and the newly inserted one */
+		if (curr->priority < t->priority) {
+			/* Yield the CPU if the newly arriving thread has higher priority */
+			thread_yield();
+		}
+	}
+}
+
+bool cmp_priority(const struct list_elem *a, const struct list_elem *b, void *aux) {
+	const struct thread *thread_a = list_entry(a, struct thread, elem);
+	const struct thread *thread_b = list_entry(b, struct thread, elem);
+	return thread_a->priority > thread_b->priority;
 }
