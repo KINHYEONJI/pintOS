@@ -335,7 +335,7 @@ void test_max_priority(void)
 {
 	if (!list_empty(&ready_list))
 	{
-		struct list_elem *e = list_back(&ready_list);
+		struct list_elem *e = list_begin(&ready_list);
 		struct thread *t = list_entry(e, struct thread, elem);
 
 		if (t->priority > thread_current()->priority)
