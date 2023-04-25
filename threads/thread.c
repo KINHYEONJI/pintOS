@@ -66,6 +66,9 @@ static void do_schedule(int status);
 static void schedule(void);
 static tid_t allocate_tid(void);
 
+void test_max_priority(void);
+bool cmp_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED); // 인자로 주어진 스레드들의 우선순위를 비교
+
 /* Returns true if T appears to point to a valid thread. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
 
@@ -178,6 +181,8 @@ void thread_print_stats(void)
    The code provided sets the new thread's `priority' member to
    PRIORITY, but no actual priority scheduling is implemented.
    Priority scheduling is the goal of Problem 1-3. */
+// thread_create() 함수로 thread를 생성할 때 인자로 초기 우선 순위를 전달 (기본 값으로 PRI_DEFAULT(=31))
+// 새로 추가된 thread가 실행 중인 thread보다 우선순위가 높은 경우 CPU를 선점하도록 하기 위해 thread_create() 함수 수정
 tid_t thread_create(const char *name, int priority,
 					thread_func *function, void *aux)
 {
@@ -209,6 +214,11 @@ tid_t thread_create(const char *name, int priority,
 	/* Add to run queue. */
 	thread_unblock(t);
 
+	/* 생성된 스레드의 우선순위가 현재 실행중인 스레드의 우선순위 보다 높다면 CPU를 양보한다. */
+	if (t->priority > thread_current()->priority) {
+		thread_yield();
+	}
+
 	return tid;
 }
 
@@ -234,6 +244,8 @@ void thread_block(void)
    be important: if the caller had disabled interrupts itself,
    it may expect that it can atomically unblock a thread and
    update other data. */
+// list_insert_ordered(&ready_list, &t->elem, &cmp_priority, NULL);
+
 void thread_unblock(struct thread *t)
 {
 	enum intr_level old_level;
@@ -242,14 +254,16 @@ void thread_unblock(struct thread *t)
 
 	old_level = intr_disable();
 	ASSERT(t->status == THREAD_BLOCKED);
-	list_push_back(&ready_list, &t->elem);
+	/* 스레드가 unblock 될때 우선순위 순으로 정렬 되어 ready_list에 삽입되도록 수정 */
+	list_insert_ordered(&ready_list, &t->elem, &cmp_priority, NULL);
+	// list_push_back(&ready_list, &t->elem);
+
 	t->status = THREAD_READY;
 	intr_set_level(old_level);
 }
 
 /* Returns the name of the running thread. */
-const char *
-thread_name(void)
+const char *thread_name(void)
 {
 	return thread_current()->name;
 }
@@ -257,8 +271,7 @@ thread_name(void)
 /* Returns the running thread.
    This is running_thread() plus a couple of sanity checks.
    See the big comment at the top of thread.h for details. */
-struct thread *
-thread_current(void)
+struct thread *thread_current(void)
 {
 	struct thread *t = running_thread();
 
@@ -300,25 +313,53 @@ void thread_exit(void)
    may be scheduled again immediately at the scheduler's whim. */
 void thread_yield(void)
 {
-	struct thread *curr = thread_current();
-	enum intr_level old_level;
+	struct thread *curr = thread_current(); // thread_current() 함수를 사용하여 현재 실행 중인 스레드에 대한 포인터를 가져옵니다.
+	enum intr_level old_level;							// 현재 인터럽트 수준을 유지할 변수를 선언합니다.
+	ASSERT(!intr_context());								// intr_context()가 false를 반환하는지 확인하여 함수가 인터럽트 처리기에서 호출되지 않도록 합니다.
 
-	ASSERT(!intr_context());
-
-	old_level = intr_disable();
+	old_level = intr_disable(); // 인터럽트를 비활성화하고 이전 인터럽트 레벨을 old_level에 저장합니다.
 	if (curr != idle_thread)
-		list_push_back(&ready_list, &curr->elem);
-	do_schedule(THREAD_READY);
-	intr_set_level(old_level);
+		/* 현재 thread가 CPU를 양보하여 ready_list에 삽입 될 때 우선순위 순서로 정렬되어 삽입 되도록 수정 */
+		list_insert_ordered(&ready_list, &curr->elem, &cmp_priority, NULL);
+		// list_push_back(&ready_list, &curr->elem);
+	do_schedule(THREAD_READY); // THREAD_READY를 인수로 사용하여 do_schedule 함수를 호출합니다. 이 함수는 실행할 다음 스레드를 예약합니다.
+	intr_set_level(old_level); // 인터럽트 레벨을 old_level에 저장된 이전 인터럽트 레벨로 되돌립니다. 그러면 인터럽트가 다시 활성화됩니다.
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
+// 현재 thread의 우선순위를 new_priority 로 변경
 void thread_set_priority(int new_priority)
 {
 	thread_current()->priority = new_priority;
+	/* 스레드의 우선순위가 변경되었을때 우선순위에 따라 선점이 발생하도록 한다. */
+	test_max_priority();
+}
+
+void test_max_priority(void) {
+	/* ready_list에서 우선순위가 가장 높은 스레드와 현재 스레드의 우선순위를 비교하여 스케줄링 한다.
+		(ready_list 가 비여있지 않은지 확인)*/
+	if (list_empty(&ready_list)) {
+		return;
+	}
+	int run_priority = thread_current()->priority;
+	struct list_elem *e = list_begin(&ready_list);
+	struct thread *t = list_entry(e, struct thread, elem);
+
+	if (run_priority < t->priority) {
+		thread_yield();
+	}
+}
+
+// 첫 번째 인자의 우선순위가 높으면 1을 반환, 두 번째 인자의 우선순위가 높으면 0을 반환
+bool cmp_priority (const struct list_elem* a, const struct list_elem* b, void* aus UNUSED) {
+	/* list_insert_ordered() 함수에서 사용 하기 위해 정열 방법을 결정하기 위한 함수 작성*/
+	t_a = list_entry(a, struct thread, elem);
+	t_b = list_entry(b, struct thread, elem);
+	if ((t_a->priority) > (t_b->priority)) ? true : false
 }
 
 /* Returns the current thread's priority. */
+// 현재 thread의 우선순위를 반환
 int thread_get_priority(void)
 {
 	return thread_current()->priority;
