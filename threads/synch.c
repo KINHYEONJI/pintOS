@@ -205,6 +205,10 @@ void lock_acquire(struct lock *lock)
 	thread_current()->wait_on_lock = NULL;
 
 	/* lock을 획득 한 후 lock holder 를 갱신한다.*/
+	ASSERT(!lock_held_by_current_thread(lock));
+
+	sema_down(&lock->semaphore);
+	lock->holder = thread_current();
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -238,7 +242,10 @@ void lock_release(struct lock *lock)
 	ASSERT(lock_held_by_current_thread(lock));
 
 	lock->holder = NULL;
+
 	sema_up(&lock->semaphore); // 잠금의 'semaphore' 멤버에서 'sema_up()'을 호출하여 잠금이 사용 가능하고 이 잠금을 기다리고 있는 모든 스레드가 잠금을 획득하려고 시도할 수 있음을 알립니다.
+
+	sema_up(&lock->semaphore);
 }
 
 /* Returns true if the current thread holds LOCK, false
@@ -302,6 +309,11 @@ void cond_wait(struct condition *cond, struct lock *lock)
 	lock_release(lock);																													// 조건 변수와 관련된 잠금을 해제하여 다른 스레드가 잠금을 획득하고 공유 데이터를 수정할 수 있도록 합니다.
 	sema_down(&waiter.semaphore);																								// waiter와 관련된 세마포어를 대기하여 현재 스레드를 차단합니다. 이 호출은 스레드가 cond_signal 또는 cond_broadcast로 신호를 받을 때만 반환됩니다.
 	lock_acquire(lock);																													// 이 함수 시작 시 이전에 해제된 잠금을 다시 획득하여 스레드가 잠금을 유지하는 동안 실행을 계속할 수 있도록 합니다. 이렇게 하면 스레드가 잠금을 보유하지 않는 동안 공유 데이터가 수정되지 않습니다.
+	sema_init(&waiter.semaphore, 0);
+	list_insert_ordered(&cond->waiters, &waiter.elem, &cmp_sem_priority, NULL);
+	lock_release(lock);
+	sema_down(&waiter.semaphore);
+	lock_acquire(lock);
 }
 
 /* If any threads are waiting on COND (protected by LOCK), then

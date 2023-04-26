@@ -95,10 +95,10 @@ struct thread
 	int wakeup_ticks;
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem; /* List element. */
-	int init_priority;		 // donation 이후 우선순위를 초기화하기 위해 초기값 저장
+	int init_priority;		 // thread의 priority는 donation을 통해 변할 수 있다. 그렇기에 원래 priority를 기억하는 변수를 하나 만들어야한다. 원래 priority를 init_priority에 저장한다.
 	struct lock *wait_on_lock; // 해당 스레드가 대기하고 있는 lock자료구조의 주소를 저장
-	struct list donations;		 // multiple donation 을 고려하기 위해 사용
-	struct list_elemdonation_elem; // multiple donation 을 고려하기 위해 사용
+	struct list donations;		 // 자신에게 우선순위를 기부한 기부자 목록
+	struct list_elem donation_elem; // 기부자 목록에 자신의 이름을 새겨놓기.
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
@@ -155,5 +155,9 @@ int64_t get_next_tick_to_awake(void);
 
 void test_max_priority(void);
 bool cmp_priority(const struct list_elem *a, const struct list_elem *b, void *aux);
+
+void donate_priority(void);
+void remove_with_lock(struct lock *lock);
+void refresh_priority(void);
 
 #endif /* threads/thread.h */
