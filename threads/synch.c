@@ -198,7 +198,7 @@ lock_acquire (struct lock *lock) {
 	{
 		curr->wait_on_lock = lock;
 		list_push_back(&lock->holder->donations, &curr->donation_elem);
-		donaion_priority();
+		donate_priority();
 	}
 
 	sema_down (&lock->semaphore);
