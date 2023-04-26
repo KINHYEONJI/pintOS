@@ -422,15 +422,16 @@ static void
 init_thread(struct thread *t, const char *name, int priority)
 {
 	ASSERT(t != NULL);
-	ASSERT(PRI_MIN <= priority && priority <= PRI_MAX);
+	ASSERT(PRI_MIN <= priority && priority <= PRI_MAX); // 최소 우선 순위 값과 최대 우선 순위 값 사이에 있는지
 	ASSERT(name != NULL);
 
 	memset(t, 0, sizeof *t);
 	t->status = THREAD_BLOCKED;
 	strlcpy(t->name, name, sizeof t->name);
-	t->tf.rsp = (uint64_t)t + PGSIZE - sizeof(void *);
-	t->priority = priority;
-	t->magic = THREAD_MAGIC;
+	t->tf.rsp = (uint64_t)t + PGSIZE - sizeof(void *); // 스레드의 스택 포인터를 스택의 맨 위로 설정
+	t->priority = priority; // 우선순위를 주어진 우선순위로 설정
+	t->magic = THREAD_MAGIC; // 매직 넘버 설정
+	/* Priority donation관련 자료구조 초기화*/
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -712,4 +713,12 @@ bool cmp_priority(const struct list_elem *a, const struct list_elem *b, void *au
 	const struct thread *thread_a = list_entry(a, struct thread, elem);
 	const struct thread *thread_b = list_entry(b, struct thread, elem);
 	return thread_a->priority > thread_b->priority;
+}
+
+void donate_priority(void)
+{
+	/* priority donation 을 수행하는 함수를 구현한다.
+	현재 스레드가 기다리고 있는 lock 과 연결 된 모든 스레드들을 순회하며
+	현재 스레드의 우선순위를 lock 을 보유하고 있는 스레드에게 기부한다.
+	(Nested donation 그림참고, nested depth 는8로제한한다. ) */
 }
