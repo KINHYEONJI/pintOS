@@ -327,6 +327,8 @@ void thread_set_priority(int new_priority)
 	thread_current()->priority = new_priority;
 
 	/* Check if current thread has to yield with the newly set priority */
+	refresh_priority();
+	donate_priority();
 	test_max_priority();
 }
 
@@ -724,15 +726,15 @@ void donate_priority (void)
 	int depth = 0;
 	struct thread *curr = thread_current();
 	int cur_priority = curr->priority;
- 
+
 	while ( depth < 9 )
 	{
 		depth++;
-		if (curr->wait_on_lock == NULL) 
+		if (curr->wait_on_lock == NULL)
 		{
 			break;
 		}
-		
+
 		curr = curr->wait_on_lock->holder;
 		curr->priority = cur_priority;
 	}
@@ -743,7 +745,7 @@ void remove_with_lock(struct lock *lock)
 
 	struct thread *t = thread_current();
 	struct list_elem *e = list_begin(&t->donations);
- 
+
 	for (e; e != list_end((&t->donations));)
 	{
 		struct thread *cur = list_entry(e, struct thread, donation_elem);
@@ -763,12 +765,12 @@ void refresh_priority(void)
 	struct thread *curr = thread_current();
 	struct thread *priority_t;
 	curr->priority = curr->init_priority;
-	
+
 	if (!list_empty(&curr->donations))
 	{
 		list_sort(&curr->donations, &cmp_priority, NULL);
 		priority_t = list_entry(list_front(&curr->donations), struct thread, donation_elem);
-		
+
 		if (priority_t->priority > curr->priority)
 		{
 			curr->priority = priority_t->priority;
