@@ -737,3 +737,23 @@ void donate_priority (void)
 		curr->priority = cur_priority;
 	}
 }
+
+void remove_with_lock(struct lock *lock)
+{
+
+	struct thread *t = thread_current();
+	struct list_elem *e = list_begin(&t->donations);
+ 
+	for (e; e != list_end((&t->donations));)
+	{
+		struct thread *cur = list_entry(e, struct thread, donation_elem);
+		if (cur->wait_on_lock == lock)
+		{
+			e = list_remove(e);
+		}
+		else
+		{
+			e = list_next(e);
+		}
+	}
+}
