@@ -93,6 +93,13 @@ struct thread
 	char name[16];			   /* Name (for debugging purposes). */
 	int priority;			   /* Priority. */
 	int wakeup_ticks;
+	
+	/* for priority donation */
+	int original_pri;			// for storing original priority value in case of donation
+	struct lock *waiting_lock;	// lock that the thread is waiting for
+	struct list donations;		// list of donors
+	struct list_elem d_elem;	// list element for donations list
+
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem; /* List element. */
 
@@ -149,7 +156,12 @@ void thread_awake(int64_t ticks);
 void update_next_tick_to_awake(int64_t ticks);
 int64_t get_next_tick_to_awake(void);
 
+/* Priority Scheduling */
 void test_max_priority(void);
 bool cmp_priority(const struct list_elem *a, const struct list_elem *b, void *aux);
+bool cmp_sem_priority(const struct list_elem *a, const struct list_elem *b, void *aux);
+void donate_priority(void);
+void remove_with_lock(struct lock *);
+void refresh_priority(void);
 
 #endif /* threads/thread.h */

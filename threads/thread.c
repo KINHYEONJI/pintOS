@@ -324,9 +324,8 @@ void thread_yield(void)
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void thread_set_priority(int new_priority)
 {
-	thread_current()->priority = new_priority;
-
-	/* Check if current thread has to yield with the newly set priority */
+	thread_current()->original_pri = new_priority;
+	refresh_priority();
 	test_max_priority();
 }
 
@@ -431,6 +430,11 @@ init_thread(struct thread *t, const char *name, int priority)
 	t->tf.rsp = (uint64_t)t + PGSIZE - sizeof(void *);
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
+
+	/* for priority donation */
+	t->waiting_lock = NULL;
+	t->original_pri = priority;
+	list_init(&t->donations);
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -712,4 +716,51 @@ bool cmp_priority(const struct list_elem *a, const struct list_elem *b, void *au
 	const struct thread *thread_a = list_entry(a, struct thread, elem);
 	const struct thread *thread_b = list_entry(b, struct thread, elem);
 	return thread_a->priority > thread_b->priority;
+}
+
+void donate_priority(void) {
+    struct thread *t = thread_current();
+    int donation = t->priority;
+
+    for (int i=0; i < 9; i++) {
+		if (t->waiting_lock == NULL) {
+			break;
+		}
+		t = t->waiting_lock->holder;
+        if (t->priority < donation) {
+            t->priority = donation;
+        } else {
+			break;
+		}
+    }
+}
+
+/* Remove all donors that are waiting for the lock that will be released */
+void remove_with_lock(struct lock *lock) {
+	struct list *d_list = &(thread_current())->donations;
+	struct list_elem *elem = list_begin(d_list);
+	
+	for (elem; elem != list_end(d_list); ) {
+		struct thread *t = list_entry(elem, struct thread, d_elem);
+		if (t->waiting_lock == lock) {
+			elem = list_remove(elem);
+		} else {
+			elem = list_next(elem);
+		}
+	}
+}
+
+void refresh_priority(void) {
+	struct thread *curr = thread_current();
+	curr->priority = curr->original_pri;
+
+	if (!list_empty(&curr->donations)) {
+		struct list_elem *elem = list_begin(&curr->donations);
+		for (elem; elem != list_end(&curr->donations); elem = list_next(elem)) {
+			struct thread *t = list_entry(elem, struct thread, d_elem);
+			if (curr->priority < t->priority) {
+				curr->priority = t->priority;
+			}
+		}
+	}
 }
