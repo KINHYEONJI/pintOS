@@ -717,3 +717,23 @@ bool cmp_priority(const struct list_elem *a, const struct list_elem *b, void *au
 	const struct thread *thread_b = list_entry(b, struct thread, elem);
 	return thread_a->priority > thread_b->priority;
 }
+
+
+void donate_priority (void)
+{
+	int depth = 0;
+	struct thread *curr = thread_current();
+	int cur_priority = curr->priority;
+ 
+	while ( depth < 9 )
+	{
+		depth++;
+		if (curr->wait_on_lock == NULL) 
+		{
+			break;
+		}
+		
+		curr = curr->wait_on_lock->holder;
+		curr->priority = cur_priority;
+	}
+}
