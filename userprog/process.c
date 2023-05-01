@@ -48,7 +48,10 @@ process_create_initd (const char *file_name) {
 	fn_copy = palloc_get_page (0);
 	if (fn_copy == NULL)
 		return TID_ERROR;
-	strlcpy (fn_copy, file_name, PGSIZE);
+	strlcpy(fn_copy, file_name, PGSIZE);
+
+	char *next_ptr;
+	strtok_r(file_name, " ", &next_ptr);
 
 	/* Create a new thread to execute FILE_NAME. */
 	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
@@ -176,19 +179,77 @@ process_exec (void *f_name) {
 	/* We first kill the current context */
 	process_cleanup ();
 
+	char *token, *next_ptr;
+	char *argv[MAX_ARGC];
+	int argc = 0;
+
+	token = strtok_r(file_name, " ", &next_ptr);
+	while (token)
+	{
+		argv[argc] = token;
+		argc++;
+		printf("TOKEN %d: %s\n", argc, token);
+		token = strtok_r(NULL, " ", &next_ptr);
+	}
+
 	/* And then load the binary */
 	success = load (file_name, &_if);
 
 	/* If load failed, quit. */
-	palloc_free_page (file_name);
 	if (!success)
 		return -1;
+
+	push_argument_to_user_stack(&_if, argv, argc);
+
+	hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
+
+	palloc_free_page(file_name);
 
 	/* Start switched process. */
 	do_iret (&_if);
 	NOT_REACHED ();
 }
 
+/* user stack에 인자 삽입 */
+void push_argument_to_user_stack(struct intr_frame *if_, char **argv, int argc)
+{
+	// USER_STACK 위치를 시작점으로 인자들을 user stack에 삽입
+	if_->rsp = USER_STACK;
+	for (int i = argc - 1; i >= 0; i--)
+	{
+		int arg_length = strlen(argv[i]) + 1;	 // NULL 문자(/0) 포함 시켜서 저장 하기 위해서
+		if_->rsp -= arg_length;								 // stack pointer 이동
+		memcpy(if_->rsp, argv[i], arg_length); // rsp 주소위치에 인자값 복사 (argv[i]가 가리키는 메모리블록에서 arg_length만큼 읽어서, if_->rsp가 가리키는 메모리 블록으로 복사)
+		argv[i] = (char *)if_->rsp;						 // 각 index에 해당하는 인자의 시작 주소를 가리키도록 초기화
+	}
+
+	// ALIGNMENT(=8byte) 제한 조건에 맞지 않을 경우, padding을 user stack에 삽입해 정렬 조건을 충족시킴
+	if (if_->rsp % ALIGNMENT)
+	{
+		int padding = if_->rsp % ALIGNMENT;
+		if_->rsp -= padding;
+		memset(if_->rsp, 0, padding);
+	}
+
+	// argv[argc+1]의 위치를 sentinel로 user stack에 삽입
+	if_->rsp -= ALIGNMENT;
+	memset(if_->rsp, 0, ALIGNMENT);
+
+	// 각 인자 문자열의 시작 주솟값을 user stack에 삽입
+	for (int i = argc - 1; i >= 0; i--)
+	{
+		if_->rsp -= ALIGNMENT;
+		memcpy(if_->rsp, &argv[i], ALIGNMENT);
+	}
+
+	// 반환할 가짜 주소 0을 user stack에 삽입
+	if_->rsp -= ALIGNMENT;
+	memset(if_->rsp, 0, ALIGNMENT);
+
+	// rsi를 argv[0]의 주소로 초기화, rdi를 argc로 초기화
+	if_->R.rsi = &argv[0];
+	if_->R.rdi = argc;
+}
 
 /* Waits for thread TID to die and returns its exit status.  If
  * it was terminated by the kernel (i.e. killed due to an
