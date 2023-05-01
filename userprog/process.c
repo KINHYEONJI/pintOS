@@ -179,31 +179,14 @@ process_exec (void *f_name) {
 	/* We first kill the current context */
 	process_cleanup ();
 
-	char *token, *next_ptr;
-	char *argv[MAX_ARGC];
-	int argc = 0;
-
-	token = strtok_r(file_name, " ", &next_ptr);
-	while (token)
-	{
-		argv[argc] = token;
-		argc++;
-		printf("TOKEN %d: %s\n", argc, token);
-		token = strtok_r(NULL, " ", &next_ptr);
-	}
-
 	/* And then load the binary */
 	success = load (file_name, &_if);
 
 	/* If load failed, quit. */
+	palloc_free_page(file_name);
+	
 	if (!success)
 		return -1;
-
-	push_argument_to_user_stack(&_if, argv, argc);
-
-	hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
-
-	palloc_free_page(file_name);
 
 	/* Start switched process. */
 	do_iret (&_if);
@@ -377,8 +360,8 @@ struct ELF64_PHDR {
 static bool setup_stack (struct intr_frame *if_);
 static bool validate_segment (const struct Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
-		uint32_t read_bytes, uint32_t zero_bytes,
-		bool writable);
+						 uint32_t read_bytes, uint32_t zero_bytes,
+						 bool writable);
 
 /* Loads an ELF executable from FILE_NAME into the current thread.
  * Stores the executable's entry point into *RIP
@@ -392,6 +375,19 @@ load (const char *file_name, struct intr_frame *if_) {
 	off_t file_ofs;
 	bool success = false;
 	int i;
+
+	char *token, *next_ptr;
+	char *argv[MAX_ARGC];
+	int argc = 0;
+
+	token = strtok_r(file_name, " ", &next_ptr);
+	while (token)
+	{
+		argv[argc] = token;
+		argc++;
+		printf("TOKEN %d: %s\n", argc, token);
+		token = strtok_r(NULL, " ", &next_ptr);
+	}
 
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();
@@ -431,43 +427,43 @@ load (const char *file_name, struct intr_frame *if_) {
 			goto done;
 		file_ofs += sizeof phdr;
 		switch (phdr.p_type) {
-			case PT_NULL:
-			case PT_NOTE:
-			case PT_PHDR:
-			case PT_STACK:
-			default:
-				/* Ignore this segment. */
-				break;
-			case PT_DYNAMIC:
-			case PT_INTERP:
-			case PT_SHLIB:
-				goto done;
-			case PT_LOAD:
+		case PT_NULL:
+		case PT_NOTE:
+		case PT_PHDR:
+		case PT_STACK:
+		default:
+			/* Ignore this segment. */
+			break;
+		case PT_DYNAMIC:
+		case PT_INTERP:
+		case PT_SHLIB:
+			goto done;
+		case PT_LOAD:
 				if (validate_segment (&phdr, file)) {
-					bool writable = (phdr.p_flags & PF_W) != 0;
-					uint64_t file_page = phdr.p_offset & ~PGMASK;
-					uint64_t mem_page = phdr.p_vaddr & ~PGMASK;
-					uint64_t page_offset = phdr.p_vaddr & PGMASK;
-					uint32_t read_bytes, zero_bytes;
+				bool writable = (phdr.p_flags & PF_W) != 0;
+				uint64_t file_page = phdr.p_offset & ~PGMASK;
+				uint64_t mem_page = phdr.p_vaddr & ~PGMASK;
+				uint64_t page_offset = phdr.p_vaddr & PGMASK;
+				uint32_t read_bytes, zero_bytes;
 					if (phdr.p_filesz > 0) {
-						/* Normal segment.
-						 * Read initial part from disk and zero the rest. */
-						read_bytes = page_offset + phdr.p_filesz;
+					/* Normal segment.
+					 * Read initial part from disk and zero the rest. */
+					read_bytes = page_offset + phdr.p_filesz;
 						zero_bytes = (ROUND_UP (page_offset + phdr.p_memsz, PGSIZE)
 								- read_bytes);
 					} else {
-						/* Entirely zero.
-						 * Don't read anything from disk. */
-						read_bytes = 0;
+					/* Entirely zero.
+					 * Don't read anything from disk. */
+					read_bytes = 0;
 						zero_bytes = ROUND_UP (page_offset + phdr.p_memsz, PGSIZE);
-					}
-					if (!load_segment (file, file_page, (void *) mem_page,
-								read_bytes, zero_bytes, writable))
-						goto done;
 				}
-				else
+					if (!load_segment (file, file_page, (void *) mem_page,
+								  read_bytes, zero_bytes, writable))
 					goto done;
-				break;
+			}
+			else
+				goto done;
+			break;
 		}
 	}
 
@@ -481,6 +477,11 @@ load (const char *file_name, struct intr_frame *if_) {
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
 
+	push_argument_to_user_stack(if_, argv, argc);
+
+	// void hex_dump (uintptr_t ofs, const void *buf_, size_t size, bool ascii) {
+	hex_dump(if_->rsp, if_->rsp, USER_STACK - if_->rsp, true);
+	
 	success = true;
 
 done:
@@ -540,7 +541,7 @@ validate_segment (const struct Phdr *phdr, struct file *file) {
  * outside of #ifndef macro. */
 
 /* load() helpers. */
-static bool install_page (void *upage, void *kpage, bool writable);
+static bool install_page(void *upage, void *kpage, bool writable);
 
 /* Loads a segment starting at offset OFS in FILE at address
  * UPAGE.  In total, READ_BYTES + ZERO_BYTES bytes of virtual
@@ -676,7 +677,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
 		void *aux = NULL;
 		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
-					writable, lazy_load_segment, aux))
+											writable, lazy_load_segment, aux))
 			return false;
 
 		/* Advance. */
