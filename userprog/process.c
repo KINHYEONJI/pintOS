@@ -44,14 +44,18 @@ process_create_initd (const char *file_name) {
 	tid_t tid;
 
 	/* Make a copy of FILE_NAME.
-	 * Otherwise there's a race between the caller and load(). */
-	fn_copy = palloc_get_page (0);
+	 * Otherwise there's a race between the caller and load(). */	// caller function과 load 사이에서 어떻게 race condition이 발생하는걸까?
+	fn_copy = palloc_get_page (0);				// file_name을 복제할 공간을 마련
 	if (fn_copy == NULL)
 		return TID_ERROR;
-	strlcpy (fn_copy, file_name, PGSIZE);
+	strlcpy (fn_copy, file_name, PGSIZE);		// file_name을 fn_copy에 복제해 넣기
+
+	/* Parse file name */
+	char *save_ptr;
+	strtok_r(file_name, " ", &save_ptr);		// file_name의 첫 argument 뒤로 자르기
 
 	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
+	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);	// file_name은 첫 argument만 잘라서 사용하고, 전체 argument를 복제해둔 fn_copy를 initd 및 load 함수에 보내줌
 	if (tid == TID_ERROR)
 		palloc_free_page (fn_copy);
 	return tid;
@@ -204,6 +208,9 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
+	while(1) {
+
+	}
 	return -1;
 }
 
@@ -329,6 +336,16 @@ load (const char *file_name, struct intr_frame *if_) {
 	bool success = false;
 	int i;
 
+	/* Parse filename into token */
+	char *token, *save_ptr;
+	int idx = 0;
+	char *argv[16];			// just a random number...!
+	for (token = strtok_r(file_name, " ", &save_ptr); token != NULL; token = strtok_r (NULL, " ", &save_ptr)) {
+		argv[idx] = token;
+		idx++;
+	}
+	int argc = idx;
+
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();
 	if (t->pml4 == NULL)
@@ -336,9 +353,9 @@ load (const char *file_name, struct intr_frame *if_) {
 	process_activate (thread_current ());
 
 	/* Open executable file. */
-	file = filesys_open (file_name);
+	file = filesys_open (argv[0]);
 	if (file == NULL) {
-		printf ("load: %s: open failed\n", file_name);
+		printf ("load: %s: open failed\n", argv[0]);
 		goto done;
 	}
 
@@ -408,14 +425,16 @@ load (const char *file_name, struct intr_frame *if_) {
 	}
 
 	/* Set up stack. */
-	if (!setup_stack (if_))
+	if (!setup_stack (if_))			// rsp is set here (stack top of user stack)
 		goto done;
 
 	/* Start address. */
-	if_->rip = ehdr.e_entry;
+	if_->rip = ehdr.e_entry;		// set rip (function entry point)
 
-	/* TODO: Your code goes here.
-	 * TODO: Implement argument passing (see project2/argument_passing.html). */
+	/* Push arguments onto stack for argument passing */
+	stack_arg(argv, argc, if_);
+
+	hex_dump(if_->rsp, if_->rsp, USER_STACK - if_->rsp, true);
 
 	success = true;
 
@@ -425,6 +444,51 @@ done:
 	return success;
 }
 
+/* Stack the arguments into the user stack */
+void stack_arg(char **argv, int argc, struct intr_frame *if_) {
+	uintptr_t stack_top = if_->rsp;
+	uintptr_t arg_addrs[argc];
+	int idx;
+
+	/* Push arguments onto the stack in reverse order */
+	for (idx = argc - 1; idx >= 0; idx--) {
+		int len = strlen(argv[idx]) + 1;	// include null terminator
+		stack_top -= len;
+		arg_addrs[idx] = stack_top;
+		memcpy((void *)stack_top, argv[idx], len);	// stack_top을 void 포인터로 casting 
+	}
+
+	/* Word-align stack pointer before the first push by adding a padding */
+	int pad_len = (stack_top % 8 != 0) ? 8 - (stack_top % 8) : 0;
+	stack_top -= pad_len;
+	memset((void *)stack_top, 0, pad_len);
+
+	/* Add the addresses of the arguments and a null pointer to the stack in reverse order */
+	stack_top -= sizeof(char *);
+	*(char *)stack_top = '\0';
+	for (idx = argc - 1; idx >= 0; idx--) {
+		stack_top -= sizeof(uintptr_t);
+		*(uintptr_t *)stack_top = arg_addrs[idx];
+	}
+	
+	/* Push argc and argv onto stack and get the address */
+	uintptr_t **arg0_stack = stack_top;
+	stack_top -= sizeof(uintptr_t);
+	*(uintptr_t **)stack_top = arg0_stack;
+	uintptr_t **argv_stack = stack_top;
+	stack_top -= sizeof(int);
+	*(int *)stack_top = argc;
+	int *argc_stack = stack_top;
+
+	/* Push a fake return address onto stack */
+	stack_top -= sizeof(void *);
+	memset((void *)stack_top, 0, sizeof(void *));
+
+	/* Update interrupt frame values */
+	if_->rsp = stack_top;
+	if_->R.rsi = argv_stack;
+	if_->R.rdi = argc_stack;
+}
 
 /* Checks whether PHDR describes a valid, loadable segment in
  * FILE and returns true if so, false otherwise. */
