@@ -48,7 +48,10 @@ process_create_initd (const char *file_name) {
 	fn_copy = palloc_get_page (0);
 	if (fn_copy == NULL)
 		return TID_ERROR;
-	strlcpy (fn_copy, file_name, PGSIZE);
+	strlcpy(fn_copy, file_name, PGSIZE);
+
+	char *next_ptr;
+	strtok_r(file_name, " ", &next_ptr);
 
 	/* Create a new thread to execute FILE_NAME. */
 	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
@@ -180,7 +183,8 @@ process_exec (void *f_name) {
 	success = load (file_name, &_if);
 
 	/* If load failed, quit. */
-	palloc_free_page (file_name);
+	palloc_free_page(file_name);
+	
 	if (!success)
 		return -1;
 
@@ -189,6 +193,46 @@ process_exec (void *f_name) {
 	NOT_REACHED ();
 }
 
+/* user stack에 인자 삽입 */
+void push_argument_to_user_stack(struct intr_frame *if_, char **argv, int argc)
+{
+	// USER_STACK 위치를 시작점으로 인자들을 user stack에 삽입
+	if_->rsp = USER_STACK;
+	for (int i = argc - 1; i >= 0; i--)
+	{
+		int arg_length = strlen(argv[i]) + 1;  // NULL 문자(/0) 포함 시켜서 저장 하기 위해서
+		if_->rsp -= arg_length;				   // stack pointer 이동
+		memcpy(if_->rsp, argv[i], arg_length); // rsp 주소위치에 인자값 복사 (argv[i]가 가리키는 메모리블록에서 arg_length만큼 읽어서, if_->rsp가 가리키는 메모리 블록으로 복사)
+		argv[i] = (char *)if_->rsp;			   // 각 index에 해당하는 인자의 시작 주소를 가리키도록 초기화
+	}
+
+	// ALIGNMENT(=8byte) 제한 조건에 맞지 않을 경우, padding을 user stack에 삽입해 정렬 조건을 충족시킴
+	if (if_->rsp % ALIGNMENT)
+	{
+		int padding = if_->rsp % ALIGNMENT;
+		if_->rsp -= padding;
+		memset(if_->rsp, 0, padding);
+	}
+
+	// argv[argc+1]의 위치를 sentinel로 user stack에 삽입
+	if_->rsp -= ALIGNMENT;
+	memset(if_->rsp, 0, ALIGNMENT);
+
+	// 각 인자 문자열의 시작 주솟값을 user stack에 삽입
+	for (int i = argc - 1; i >= 0; i--)
+	{
+		if_->rsp -= ALIGNMENT;
+		memcpy(if_->rsp, &argv[i], ALIGNMENT);
+	}
+
+	// 반환할 가짜 주소 0을 user stack에 삽입
+	if_->rsp -= ALIGNMENT;
+	memset(if_->rsp, 0, ALIGNMENT);
+
+	// rsi를 argv[0]의 주소로 초기화, rdi를 argc로 초기화
+	if_->R.rsi = &argv[0];
+	if_->R.rdi = argc;
+}
 
 /* Waits for thread TID to die and returns its exit status.  If
  * it was terminated by the kernel (i.e. killed due to an
@@ -204,6 +248,9 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
+	while(true){
+
+	}
 	return -1;
 }
 
@@ -313,8 +360,8 @@ struct ELF64_PHDR {
 static bool setup_stack (struct intr_frame *if_);
 static bool validate_segment (const struct Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
-		uint32_t read_bytes, uint32_t zero_bytes,
-		bool writable);
+						 uint32_t read_bytes, uint32_t zero_bytes,
+						 bool writable);
 
 /* Loads an ELF executable from FILE_NAME into the current thread.
  * Stores the executable's entry point into *RIP
@@ -328,6 +375,19 @@ load (const char *file_name, struct intr_frame *if_) {
 	off_t file_ofs;
 	bool success = false;
 	int i;
+
+	char *token, *next_ptr;
+	char *argv[MAX_ARGC];
+	int argc = 0;
+
+	token = strtok_r(file_name, " ", &next_ptr);
+	while (token)
+	{
+		argv[argc] = token;
+		argc++;
+		printf("TOKEN %d: %s\n", argc, token);
+		token = strtok_r(NULL, " ", &next_ptr);
+	}
 
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();
@@ -367,43 +427,43 @@ load (const char *file_name, struct intr_frame *if_) {
 			goto done;
 		file_ofs += sizeof phdr;
 		switch (phdr.p_type) {
-			case PT_NULL:
-			case PT_NOTE:
-			case PT_PHDR:
-			case PT_STACK:
-			default:
-				/* Ignore this segment. */
-				break;
-			case PT_DYNAMIC:
-			case PT_INTERP:
-			case PT_SHLIB:
-				goto done;
-			case PT_LOAD:
+		case PT_NULL:
+		case PT_NOTE:
+		case PT_PHDR:
+		case PT_STACK:
+		default:
+			/* Ignore this segment. */
+			break;
+		case PT_DYNAMIC:
+		case PT_INTERP:
+		case PT_SHLIB:
+			goto done;
+		case PT_LOAD:
 				if (validate_segment (&phdr, file)) {
-					bool writable = (phdr.p_flags & PF_W) != 0;
-					uint64_t file_page = phdr.p_offset & ~PGMASK;
-					uint64_t mem_page = phdr.p_vaddr & ~PGMASK;
-					uint64_t page_offset = phdr.p_vaddr & PGMASK;
-					uint32_t read_bytes, zero_bytes;
+				bool writable = (phdr.p_flags & PF_W) != 0;
+				uint64_t file_page = phdr.p_offset & ~PGMASK;
+				uint64_t mem_page = phdr.p_vaddr & ~PGMASK;
+				uint64_t page_offset = phdr.p_vaddr & PGMASK;
+				uint32_t read_bytes, zero_bytes;
 					if (phdr.p_filesz > 0) {
-						/* Normal segment.
-						 * Read initial part from disk and zero the rest. */
-						read_bytes = page_offset + phdr.p_filesz;
+					/* Normal segment.
+					 * Read initial part from disk and zero the rest. */
+					read_bytes = page_offset + phdr.p_filesz;
 						zero_bytes = (ROUND_UP (page_offset + phdr.p_memsz, PGSIZE)
 								- read_bytes);
 					} else {
-						/* Entirely zero.
-						 * Don't read anything from disk. */
-						read_bytes = 0;
+					/* Entirely zero.
+					 * Don't read anything from disk. */
+					read_bytes = 0;
 						zero_bytes = ROUND_UP (page_offset + phdr.p_memsz, PGSIZE);
-					}
-					if (!load_segment (file, file_page, (void *) mem_page,
-								read_bytes, zero_bytes, writable))
-						goto done;
 				}
-				else
+					if (!load_segment (file, file_page, (void *) mem_page,
+								  read_bytes, zero_bytes, writable))
 					goto done;
-				break;
+			}
+			else
+				goto done;
+			break;
 		}
 	}
 
@@ -417,6 +477,11 @@ load (const char *file_name, struct intr_frame *if_) {
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
 
+	push_argument_to_user_stack(if_, argv, argc);
+
+	// void hex_dump (uintptr_t ofs, const void *buf_, size_t size, bool ascii) {
+	hex_dump(if_->rsp, if_->rsp, USER_STACK - if_->rsp, true);
+	
 	success = true;
 
 done:
@@ -476,7 +541,7 @@ validate_segment (const struct Phdr *phdr, struct file *file) {
  * outside of #ifndef macro. */
 
 /* load() helpers. */
-static bool install_page (void *upage, void *kpage, bool writable);
+static bool install_page(void *upage, void *kpage, bool writable);
 
 /* Loads a segment starting at offset OFS in FILE at address
  * UPAGE.  In total, READ_BYTES + ZERO_BYTES bytes of virtual
@@ -612,7 +677,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
 		void *aux = NULL;
 		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
-					writable, lazy_load_segment, aux))
+											writable, lazy_load_segment, aux))
 			return false;
 
 		/* Advance. */
