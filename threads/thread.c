@@ -182,6 +182,13 @@ tid_t thread_create(const char *name, int priority,
 					thread_func *function, void *aux)
 {
 	struct thread *t;
+
+	// ******************************LINE ADDED****************************** //
+  // Project 1-2.1 : Thread - RoundRobin Scheduling -> Priority Scheduling
+  struct thread *now_running = thread_current(); // 지금 돌고 있는 스레드
+  // *************************ADDED LINE ENDS HERE************************* //
+
+
 	tid_t tid;
 
 	ASSERT(function != NULL);
@@ -194,6 +201,38 @@ tid_t thread_create(const char *name, int priority,
 	/* Initialize thread. */
 	init_thread(t, name, priority);
 	tid = t->tid = allocate_tid();
+
+	// ******************************LINE ADDED****************************** //
+	// Project 2-2 : User Programs - System Call
+
+	/* 1) 부모 프로세스 저장
+	 * 2) 프로그램이 로드되지 않음
+	 * 3) 프로세스가 종료되지 않음
+	 * 4) exit 세마포어 0으로 초기화 -> init_thread
+	 * 5) load 세마포어 0으로 초기화 -> init_thread
+	 * 6) 자식 리스트에 추가*/
+
+	/*struct thread *parent;
+	parent = thread_current();*/
+	list_push_back(&now_running->child_list, &t->child_elem); // parent child 리스트에 생성한 child를 담는다
+
+	/* project 2 : File Descriptor */
+	/*
+	 * 1) fd 값 초기화(0,1은 표준 입력, 출력) -> fdtable배열로 받았으므로 바로 값 넣어주면된다.
+	 * 2) File Descriptor 테이블에 메모리 할당
+	 */
+
+	t->fd_table = palloc_get_multiple(PAL_ZERO, FDT_PAGES);
+	if (t->fd_table == NULL)
+		return TID_ERROR;
+
+	t->fd_table[0] = 1;
+	t->fd_table[1] = 2;
+	t->fd_idx = 2; // idx 2로 초기화
+
+	// count 초기화
+	t->stdin_count = 1;
+	t->stdout_count = 1;
 
 	/* Call the kernel_thread if it scheduled.
 	 * Note) rdi is 1st argument, and rsi is 2nd argument. */
@@ -211,6 +250,11 @@ tid_t thread_create(const char *name, int priority,
 
 	/* Check current thread's priority and max priority in list and make current yield if priority in list is higher */
 	test_max_priority();
+
+	// if (cmp_priority(&t->elem, &now_running->elem, 0))
+	// {
+	// 	thread_yield();
+	// }
 
 	return tid;
 }
@@ -437,6 +481,16 @@ init_thread(struct thread *t, const char *name, int priority)
 	t->init_priority = priority;
 	list_init(&t->donations);
 	t->wait_on_lock = NULL;
+
+	// ******************************LINE ADDED****************************** //
+  // Project 2-2-1: User Programs - System Call - Basics
+  list_init(&t->child_list);
+  sema_init(&t->wait_sema, 0);
+  sema_init(&t->fork_sema, 0);
+  sema_init(&t->free_sema, 0);
+  t->running = NULL;
+  t->exit_status = 0; // 스레드 시작시 상태 플래그 0으로 초기화
+  // *************************ADDED LINE ENDS HERE************************* //
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should

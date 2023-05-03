@@ -238,6 +238,7 @@ tid_t exec(char *file_name)
 	if (process_exec(fn_copy) == -1)
 	{
 		return -1;
+		// exit(-1);
 	}
 	NOT_REACHED();
 	return 0;

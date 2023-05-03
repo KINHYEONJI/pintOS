@@ -270,6 +270,8 @@ error:
 int
 process_exec (void *f_name) {
 	char *file_name = f_name;
+	// char *file_name = (char *)palloc_get_page(PAL_ZERO);
+	// strlcpy(file_name, (char *)f_name, strlen(f_name) + 1);
 	bool success;
 
 	/* We cannot use the intr_frame in the thread structure.
@@ -301,7 +303,7 @@ process_exec (void *f_name) {
 void push_argument_to_user_stack(struct intr_frame *if_, char **argv, int argc)
 {
 	// USER_STACK 위치를 시작점으로 인자들을 user stack에 삽입
-	if_->rsp = USER_STACK;
+	// if_->rsp = USER_STACK;
 	for (int i = argc - 1; i >= 0; i--)
 	{
 		int arg_length = strlen(argv[i]) + 1;  // NULL 문자(/0) 포함 시켜서 저장 하기 위해서
@@ -334,7 +336,7 @@ void push_argument_to_user_stack(struct intr_frame *if_, char **argv, int argc)
 	memset(if_->rsp, 0, ALIGNMENT);
 
 	// rsi를 argv[0]의 주소로 초기화, rdi를 argc로 초기화
-	if_->R.rsi = &argv[0];
+	if_->R.rsi = if_->rsp + ALIGNMENT;
 	if_->R.rdi = argc;
 }
 
@@ -347,30 +349,60 @@ void push_argument_to_user_stack(struct intr_frame *if_, char **argv, int argc)
  *
  * This function will be implemented in problem 2-2.  For now, it
  * does nothing. */
-int
-process_wait (tid_t child_tid UNUSED) {
+// int
+// process_wait (tid_t child_tid UNUSED) {
+// 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
+// 	 * XXX:       to add infinite loop here before
+// 	 * XXX:       implementing the process_wait. */
+
+// 	/* System call 추가 */
+// 	// while(1);
+// 	// return -1;
+// 	struct thread *child = get_child(child_tid); /* 자식 프로세스의 프로세스 디스크립터 검색 */
+
+// 	// [Fail] Not my child /* 예외 처리 발생시 -1 리턴 */
+// 	if (child == NULL)
+// 		return -1;
+
+// 	// Parent waits until child signals (sema_up) after its execution
+// 	sema_down(&child->wait_sema); /* 자식프로세스가 종료될 때까지 부모 프로세스 대기(세마포어 이용) */
+
+// 	int exit_status = child->exit_status;
+
+// 	// Keep child page so parent can get exit_status
+// 	list_remove(&child->child_elem); /* 자식 프로세스 디스크립터 삭제 */
+// 	sema_up(&child->free_sema);			 // wake-up child in process_exit - proceed with thread_exit
+// 	return exit_status;							 /* 자식 프로세스의 exit status 리턴 */
+// }
+
+int process_wait(tid_t child_tid UNUSED)
+{
+	// ******************************LINE ADDED****************************** //
+	// Project 2-1 : User Programs - Argument Passing
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
+	/*while(true) {
+			// (TEMPORARY FOR DEBUGGING) Infinite Loop to fake child wait
+	}
+	return -1;*/
+	/*printf("Waiting Child Process...\n");*/
+	// *************************ADDED LINE ENDS HERE************************* //
 
-	/* System call 추가 */
-	// while(1);
-	// return -1;
-	struct thread *child = get_child(child_tid); /* 자식 프로세스의 프로세스 디스크립터 검색 */
-
-	// [Fail] Not my child /* 예외 처리 발생시 -1 리턴 */
+	// ******************************LINE ADDED****************************** //
+	// Project 2-2 : User Programs - System Call
+	struct thread *child = get_child(child_tid);
 	if (child == NULL)
+	{
 		return -1;
-
-	// Parent waits until child signals (sema_up) after its execution
-	sema_down(&child->wait_sema); /* 자식프로세스가 종료될 때까지 부모 프로세스 대기(세마포어 이용) */
-
+	}
+	sema_down(&child->wait_sema);
 	int exit_status = child->exit_status;
+	list_remove(&child->child_elem);
+	sema_up(&child->free_sema);
 
-	// Keep child page so parent can get exit_status
-	list_remove(&child->child_elem); /* 자식 프로세스 디스크립터 삭제 */
-	sema_up(&child->free_sema);			 // wake-up child in process_exit - proceed with thread_exit
-	return exit_status;							 /* 자식 프로세스의 exit status 리턴 */
+	return exit_status;
+	// *************************ADDED LINE ENDS HERE************************* //
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -511,13 +543,28 @@ load (const char *file_name, struct intr_frame *if_) {
 	int argc = 0;
 
 	token = strtok_r(file_name, " ", &next_ptr);
+	
 	while (token)
 	{
 		argv[argc] = token;
 		argc++;
-		printf("TOKEN %d: %s\n", argc, token);
+		// printf("TOKEN %d: %s\n", argc, token);
 		token = strtok_r(NULL, " ", &next_ptr);
 	}
+
+	// char *argv[128];
+	// char *token, *save_ptr;
+	// int argc = 0;
+
+	// token = strtok_r(file_name, " ", &save_ptr);
+	// argv[argc] = token;
+
+	// while (token != NULL)
+	// {
+	// 	token = strtok_r(NULL, " ", &save_ptr);
+	// 	argc++;
+	// 	argv[argc] = token;
+	// }
 
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();
@@ -619,13 +666,13 @@ load (const char *file_name, struct intr_frame *if_) {
 	push_argument_to_user_stack(if_, argv, argc);
 
 	// void hex_dump (uintptr_t ofs, const void *buf_, size_t size, bool ascii) {
-	hex_dump(if_->rsp, if_->rsp, USER_STACK - if_->rsp, true);
+	// hex_dump(if_->rsp, if_->rsp, USER_STACK - if_->rsp, true);
 	
 	success = true;
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	file_close (file);
+	// file_close (file);
 	return success;
 }
 
