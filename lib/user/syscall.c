@@ -68,12 +68,17 @@ static __inline int64_t syscall (uint64_t num_, uint64_t a1_, uint64_t a2_,
 			((uint64_t) ARG3), \
 			((uint64_t) ARG4), \
 			0))
+// pintos를 종료시키는 시스템 콜
 void
 halt (void) {
 	syscall0 (SYS_HALT);
 	NOT_REACHED ();
 }
 
+// 현재 프로세스를 종료시키는 시스템 콜
+// 종료 시 "프로세스 이름: exit(status)" 출력 (Process Termination Message)
+// 정상적으로 종료 시 status는 0
+// status: 프로그램이 정상적으로 종료됐는지 확인
 void
 exit (int status) {
 	syscall1 (SYS_EXIT, status);
@@ -95,11 +100,18 @@ wait (pid_t pid) {
 	return syscall1 (SYS_WAIT, pid);
 }
 
+// 파일을 생성하는 시스템 콜
+// 성공 일 경우 true, 실패 일 경우 false 리턴
+// file: 생성할 파일의 이름 및 경로 정보
+// initial_size: 생성할 파일의 크기
 bool
 create (const char *file, unsigned initial_size) {
 	return syscall2 (SYS_CREATE, file, initial_size);
 }
 
+// 파일을 삭제하는 시스템 콜
+// file : 제거할 파일의 이름 및 경로 정보
+// 성공 일 경우 ture, 실패 일 경우 false 리턴
 bool
 remove (const char *file) {
 	return syscall1 (SYS_REMOVE, file);
@@ -125,6 +137,7 @@ write (int fd, const void *buffer, unsigned size) {
 	return syscall3 (SYS_WRITE, fd, buffer, size);
 }
 
+// 열린 파일에서 다음으로 읽거나 쓸 파일 내 데이터의 위치(offset)을 입력받은 position으로 옮긴다.
 void
 seek (int fd, unsigned position) {
 	syscall2 (SYS_SEEK, fd, position);
