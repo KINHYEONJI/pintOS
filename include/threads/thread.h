@@ -9,6 +9,13 @@
 #include "vm/vm.h"
 #endif
 
+// ******************************LINE ADDED****************************** //
+// Project 2-2-2 : User Programs - System Call - File Descriptor
+#include "threads/synch.h"
+#define FDT_PAGES 3
+#define FDCOUNT_LIMIT FDT_PAGES * (1 << 9) // Limiting fd_idx
+// *************************ADDED LINE ENDS HERE************************* //
+
 /* States in a thread's life cycle. */
 enum thread_status
 {
@@ -100,6 +107,27 @@ struct thread
 	struct lock *wait_on_lock;
 	struct list donations;
 	struct list_elem donation_elem;
+
+	// Project 2-2-1: User Programs - System Call - Basics
+	int exit_status; // System Call 구현시 상태 체크 위한 플래그 변수. Used in userprog/syscall.c
+
+	struct intr_frame parent_if;
+
+	struct list child_list;
+	struct list_elem child_elem;
+
+	struct semaphore wait_sema;
+	struct semaphore fork_sema;
+	struct semaphore free_sema;
+
+	// Project 2-2-2 : User Programs - System Call - File Descriptor
+	struct file **fd_table;
+	int fd_idx;
+
+	int stdin_count;
+	int stdout_count;
+
+	struct file *running;
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
