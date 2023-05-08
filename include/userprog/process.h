@@ -13,9 +13,6 @@ void process_exit (void);
 void process_activate (struct thread *next);
 void push_argument_to_user_stack(struct intr_frame *if_, char **argv, int argc);
 
-// ******************************LINE ADDED****************************** //
-// Project 2-2-1 : User Programs - System Call - Basics
 struct thread *get_child(int pid);
-// *************************ADDED LINE ENDS HERE************************* //
 
 #endif /* userprog/process.h */

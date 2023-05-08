@@ -27,24 +27,16 @@ static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
 
-/* General process initializer for initd and other process. */
 static void
 process_init (void) {
 	struct thread *current = thread_current ();
 }
 
-/* Starts the first userland program, called "initd", loaded from FILE_NAME.
- * The new thread may be scheduled (and may even exit)
- * before process_create_initd() returns. Returns the initd's
- * thread id, or TID_ERROR if the thread cannot be created.
- * Notice that THIS SHOULD BE CALLED ONCE. */
 tid_t
 process_create_initd (const char *file_name) {
 	char *fn_copy;
 	tid_t tid;
 
-	/* Make a copy of FILE_NAME.
-	 * Otherwise there's a race between the caller and load(). */
 	fn_copy = palloc_get_page (0);
 	if (fn_copy == NULL)
 		return TID_ERROR;
@@ -53,14 +45,12 @@ process_create_initd (const char *file_name) {
 	char *next_ptr;
 	strtok_r(file_name, " ", &next_ptr);
 
-	/* Create a new thread to execute FILE_NAME. */
 	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
 		palloc_free_page (fn_copy);
 	return tid;
 }
 
-/* A thread function that launches first user process. */
 static void
 initd (void *f_name) {
 #ifdef VM
@@ -74,19 +64,13 @@ initd (void *f_name) {
 	NOT_REACHED ();
 }
 
-/* Clones the current process as `name`. Returns the new process's thread id, or
- * TID_ERROR if the thread cannot be created. */
 tid_t process_fork(const char *name, struct intr_frame *if_ UNUSED)
 {
-	/* Clone current thread to new thread.*/
-	// ******************************LINE ADDED****************************** //
-	// Project 2-2 : User Programs - System Call
 
 	struct thread *curr = thread_current();
 	memcpy(&curr->parent_if, if_, sizeof(struct intr_frame));
 
 	tid_t pid = thread_create(name, PRI_DEFAULT, __do_fork, curr);
-	/*return thread_create (name, PRI_DEFAULT, __do_fork, thread_current ());*/
 
 	if (pid == TID_ERROR)
 	{
@@ -101,12 +85,10 @@ tid_t process_fork(const char *name, struct intr_frame *if_ UNUSED)
 		return TID_ERROR;
 
 	return pid;
-	// *************************ADDED LINE ENDS HERE************************* //
 }
 
 #ifndef VM
-/* Duplicate the parent's address space by passing this function to the
- * pml4_for_each. This is only for the project 2. */
+
 static bool duplicate_pte(uint64_t *pte, void *va, void *aux)
 {
 	struct thread *current = thread_current();
@@ -114,74 +96,43 @@ static bool duplicate_pte(uint64_t *pte, void *va, void *aux)
 	void *parent_page;
 	void *newpage;
 	bool writable;
-
-	/* 1. TODO: If the parent_page is kernel page, then return immediately. */
-	// ******************************LINE ADDED****************************** //
-	// Project 2-2 : User Programs - System Call
 	if (is_kernel_vaddr(va))
 	{
 		return true;
 	}
-	// *************************ADDED LINE ENDS HERE************************* //
-
-	/* 2. Resolve VA from the parent's page map level 4. */
 	parent_page = pml4_get_page(parent->pml4, va);
-	// ******************************LINE ADDED****************************** //
-	// Project 2-2 : User Programs - System Call
 	if (parent_page == NULL)
 	{
 		return false;
 	}
-	// *************************ADDED LINE ENDS HERE************************* //
-
-	/* 3. TODO: Allocate new PAL_USER page for the child and set result to
-	 *    TODO: NEWPAGE. */
 	newpage = palloc_get_page(PAL_USER | PAL_ZERO);
 	if (newpage == NULL)
 	{
 		return false;
 	}
 
-	/* 4. TODO: Duplicate parent's page to the new page and
-	 *    TODO: check whether parent's page is writable or not (set WRITABLE
-	 *    TODO: according to the result). */
 	memcpy(newpage, parent_page, PGSIZE); // parent_page는 가상주소이고, 이것을 newpage에 복사 _ SIZE는 4KB(할당해준 공간도 4KB)
 	writable = is_writable(pte);					// pte가 읽고/쓰기가 가능한지 확인
 
-	/* 5. Add new page to child's page table at address VA with WRITABLE
-	 *    permission. */
 	if (!pml4_set_page(current->pml4, va, newpage, writable))
 	{
-		/* 6. TODO: if fail to insert page, do error handling. */
-		// ******************************LINE ADDED****************************** //
-		// Project 2-2 : User Programs - System Call
 		return false;
-		// *************************ADDED LINE ENDS HERE************************* //
 	}
 	return true;
 }
 #endif
 
-/* A thread function that copies parent's execution context.
- * Hint) parent->tf does not hold the userland context of the process.
- *       That is, you are required to pass second argument of process_fork to
- *       this function. */
 static void __do_fork(void *aux)
 {
 	struct intr_frame if_;
 	struct thread *parent = (struct thread *)aux;
 	struct thread *current = thread_current();
-	/* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
 	struct intr_frame *parent_if;
 	bool success = true;
-
-	/* 1. Read the cpu context to local stack. */
-	// ******************************LINE ADDED****************************** //
 	parent_if = &parent->parent_if;
 
 	memcpy(&if_, parent_if, sizeof(struct intr_frame));
-	if_.R.rax = 0; // Child Process return 0
-								 // *************************ADDED LINE ENDS HERE************************* //
+	if_.R.rax = 0;
 
 	/* 2. Duplicate PT */
 	current->pml4 = pml4_create();
@@ -198,13 +149,6 @@ static void __do_fork(void *aux)
 		goto error;
 #endif
 
-	/* TODO: Your code goes here.
-	 * TODO: Hint) To duplicate the file object, use `file_duplicate`
-	 * TODO:       in include/filesys/file.h. Note that parent should not return
-	 * TODO:       from the fork() until this function successfully duplicates
-	 * TODO:       the resources of parent.*/
-
-	// Project 2-2-2 : User Programs - System Call - File Descriptor
 	if (parent->fd_idx >= FDCOUNT_LIMIT)
 		goto error;
 
@@ -220,49 +164,16 @@ static void __do_fork(void *aux)
 		}
 		current->fd_table[i] = file_duplicate(f);
 	}
-
-	/*// 디버깅중
-	for (int i = 0; i < FDCOUNT_LIMIT; i++)
-	{
-			struct file *file = parent->fd_table[i];
-			if (file == NULL)
-					continue;
-			// if 'file' is already duplicated in child don't duplicate again but share it
-			bool found = false;
-			if (!found)
-			{
-					struct file *new_file;
-					if (file > 2)
-							new_file = file_duplicate(file);
-					else
-							new_file = file;
-					current->fd_table[i] = new_file;
-			}
-	}
-	// 디버깅중*/
-
 	current->fd_idx = parent->fd_idx;
-
-	// if child loaded successfully, wake up parent in process_fork
 	sema_up(&current->fork_sema);
 
-	// 디버깅중
-	/*if_.R.rax = 0;
-	process_init ();*/
-
-	// *************************ADDED LINE ENDS HERE************************* //
-
-	/* Finally, switch to the newly created process. */
 	if (success)
 		do_iret(&if_);
+
 error:
-	// ******************************LINE MODDED****************************** //
-	// Project 2-2 : User Programs - System Call
 	current->exit_status = TID_ERROR;
 	sema_up(&current->fork_sema);
 	exit(TID_ERROR);
-	/*thread_exit ();*/
-	// *************************MODDED LINE ENDS HERE************************* //
 }
 
 /* Switch the current execution context to the f_name.
@@ -270,13 +181,8 @@ error:
 int
 process_exec (void *f_name) {
 	char *file_name = f_name;
-	// char *file_name = (char *)palloc_get_page(PAL_ZERO);
-	// strlcpy(file_name, (char *)f_name, strlen(f_name) + 1);
 	bool success;
 
-	/* We cannot use the intr_frame in the thread structure.
-	 * This is because when current thread rescheduled,
-	 * it stores the execution information to the member. */
 	struct intr_frame _if;
 	_if.ds = _if.es = _if.ss = SEL_UDSEG;
 	_if.cs = SEL_UCSEG;
@@ -303,7 +209,6 @@ process_exec (void *f_name) {
 void push_argument_to_user_stack(struct intr_frame *if_, char **argv, int argc)
 {
 	// USER_STACK 위치를 시작점으로 인자들을 user stack에 삽입
-	// if_->rsp = USER_STACK;
 	for (int i = argc - 1; i >= 0; i--)
 	{
 		int arg_length = strlen(argv[i]) + 1;  // NULL 문자(/0) 포함 시켜서 저장 하기 위해서
@@ -340,57 +245,8 @@ void push_argument_to_user_stack(struct intr_frame *if_, char **argv, int argc)
 	if_->R.rdi = argc;
 }
 
-/* Waits for thread TID to die and returns its exit status.  If
- * it was terminated by the kernel (i.e. killed due to an
- * exception), returns -1.  If TID is invalid or if it was not a
- * child of the calling process, or if process_wait() has already
- * been successfully called for the given TID, returns -1
- * immediately, without waiting.
- *
- * This function will be implemented in problem 2-2.  For now, it
- * does nothing. */
-// int
-// process_wait (tid_t child_tid UNUSED) {
-// 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
-// 	 * XXX:       to add infinite loop here before
-// 	 * XXX:       implementing the process_wait. */
-
-// 	/* System call 추가 */
-// 	// while(1);
-// 	// return -1;
-// 	struct thread *child = get_child(child_tid); /* 자식 프로세스의 프로세스 디스크립터 검색 */
-
-// 	// [Fail] Not my child /* 예외 처리 발생시 -1 리턴 */
-// 	if (child == NULL)
-// 		return -1;
-
-// 	// Parent waits until child signals (sema_up) after its execution
-// 	sema_down(&child->wait_sema); /* 자식프로세스가 종료될 때까지 부모 프로세스 대기(세마포어 이용) */
-
-// 	int exit_status = child->exit_status;
-
-// 	// Keep child page so parent can get exit_status
-// 	list_remove(&child->child_elem); /* 자식 프로세스 디스크립터 삭제 */
-// 	sema_up(&child->free_sema);			 // wake-up child in process_exit - proceed with thread_exit
-// 	return exit_status;							 /* 자식 프로세스의 exit status 리턴 */
-// }
-
 int process_wait(tid_t child_tid UNUSED)
 {
-	// ******************************LINE ADDED****************************** //
-	// Project 2-1 : User Programs - Argument Passing
-	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
-	 * XXX:       to add infinite loop here before
-	 * XXX:       implementing the process_wait. */
-	/*while(true) {
-			// (TEMPORARY FOR DEBUGGING) Infinite Loop to fake child wait
-	}
-	return -1;*/
-	/*printf("Waiting Child Process...\n");*/
-	// *************************ADDED LINE ENDS HERE************************* //
-
-	// ******************************LINE ADDED****************************** //
-	// Project 2-2 : User Programs - System Call
 	struct thread *child = get_child(child_tid);
 	if (child == NULL)
 	{
@@ -402,19 +258,13 @@ int process_wait(tid_t child_tid UNUSED)
 	sema_up(&child->free_sema);
 
 	return exit_status;
-	// *************************ADDED LINE ENDS HERE************************* //
 }
 
 /* Exit the process. This function is called by thread_exit (). */
 void process_exit(void)
 {
 	struct thread *curr = thread_current();
-	/* TODO: Your code goes here.
-	 * TODO: Implement process termination message (see
-	 * TODO: project2/process_termination.html).
-	 * TODO: We recommend you to implement process resource cleanup here. */
 
-	// Close all Opened file by for loop
 	for (int i = 0; i < FDCOUNT_LIMIT; i++)
 	{
 		close(i);
@@ -438,17 +288,9 @@ process_cleanup (void) {
 #endif
 
 	uint64_t *pml4;
-	/* Destroy the current process's page directory and switch back
-	 * to the kernel-only page directory. */
+
 	pml4 = curr->pml4;
 	if (pml4 != NULL) {
-		/* Correct ordering here is crucial.  We must set
-		 * cur->pagedir to NULL before switching page directories,
-		 * so that a timer interrupt can't switch back to the
-		 * process page directory.  We must activate the base page
-		 * directory before destroying the process's page
-		 * directory, or our active page directory will be one
-		 * that's been freed (and cleared). */
 		curr->pml4 = NULL;
 		pml4_activate (NULL);
 		pml4_destroy (pml4);
@@ -548,23 +390,8 @@ load (const char *file_name, struct intr_frame *if_) {
 	{
 		argv[argc] = token;
 		argc++;
-		// printf("TOKEN %d: %s\n", argc, token);
 		token = strtok_r(NULL, " ", &next_ptr);
 	}
-
-	// char *argv[128];
-	// char *token, *save_ptr;
-	// int argc = 0;
-
-	// token = strtok_r(file_name, " ", &save_ptr);
-	// argv[argc] = token;
-
-	// while (token != NULL)
-	// {
-	// 	token = strtok_r(NULL, " ", &save_ptr);
-	// 	argc++;
-	// 	argv[argc] = token;
-	// }
 
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();
@@ -579,14 +406,9 @@ load (const char *file_name, struct intr_frame *if_) {
 		goto done;
 	}
 
-	// ******************************LINE ADDED****************************** //
-	// Project 2-2 : User Programs - System Call
-	/* 실행 중인 스레드 t의 running을 실행할 파일로 초기화*/
 	t->running = file;
 
-	/* 현재 오픈한 파일에 다른내용 쓰지 못하게 함 */
 	file_deny_write(file);
-	// *************************ADDED LINE ENDS HERE************************* //
 
 	/* Read and verify executable header. */
 	if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
